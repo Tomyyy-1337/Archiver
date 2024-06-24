@@ -34,6 +34,7 @@ impl LZ77 {
         let n = input.len();
         
         let suffix_array = SuffixArray::new(input);        
+
         let (_,suffix_array) = suffix_array.into_parts();
         let suffix_array = suffix_array.into_iter().map(|i| i as usize).collect::<Vec<_>>();
 

@@ -16,7 +16,7 @@ fn main() {
     let args = terminal_interface::Args::parse();
 
     let lz_buffer_size = 28;
-    let huffman_bits = 20;
+    let huffman_bits = 18;
 
     if let Some(encrypt) = args.encrypt {
         let root = Archive::read_from_disk(&encrypt);
