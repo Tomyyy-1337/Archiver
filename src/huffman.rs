@@ -179,14 +179,13 @@ impl HuffmanTree {
     fn build_reverse_map(&self) -> Vec<Option<u8>> {
         let mut map = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
         self.build_map(Vec::new(), &mut map);
-
+        
         let max_len = map.iter().map(|v| v.len()).max().unwrap();
         let mut result = vec![None; 2usize.pow(max_len as u32 + 1)];
         for (c, path) in map.into_iter().enumerate() {
             let indx = std::iter::once(true).chain(path.into_iter()).fold(0usize, |acc, b| (acc << 1) | if b {1} else {0});
             result[indx] = Some(c as u8);
         }
-
         result
     }
 
@@ -202,7 +201,7 @@ impl HuffmanTree {
                     path
                 }, map);
                 self.children[1].build_map({
-                    let mut path = current_path.clone();
+                    let mut path = current_path;
                     path.push(true);
                     path
                 }, map);
