@@ -1,9 +1,45 @@
 use std::cmp::Reverse;
 
+use indicatif::ParallelProgressIterator;
 use priority_queue::PriorityQueue;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use serde::{Serialize, Deserialize};
 
 use crate::bitbuffer;
+
+#[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
+pub struct ParrallelHuffman {
+    chunks: Vec<Huffman>,
+}
+
+impl ParrallelHuffman {
+    pub fn serialize(&self) -> Vec<u8> {
+        bincode::serialize(&self).unwrap()
+    }
+
+    pub fn deserialize(input: &[u8]) -> ParrallelHuffman {
+        bincode::deserialize(input).unwrap()
+    }
+
+    pub fn encrypt(input: &Vec<u8>, bits: u8) -> ParrallelHuffman {
+        let chunk_size = 2usize.pow(bits as u32) - 1;
+        let chunks = input.chunks(chunk_size)
+            .collect::<Vec<_>>()
+            .par_iter()
+            .progress()
+            .map(|chunk| Huffman::encrypt(&chunk.to_vec()))
+            .collect::<Vec<_>>();
+        ParrallelHuffman { chunks }
+    }
+
+    pub fn decrypt(&self) -> Vec<u8> {
+        self.chunks
+            .par_iter()
+            .progress()
+            .flat_map(|chunk| chunk.decrypt())
+            .collect()
+    }
+}
 
 #[derive(Serialize, Deserialize, PartialEq, Eq, Debug, Clone)]
 pub struct Huffman {
@@ -13,14 +49,6 @@ pub struct Huffman {
 }
 
 impl Huffman {
-    pub fn serialize(&self) -> Vec<u8> {
-        bincode::serialize(&self).unwrap()
-    }
-
-    pub fn deserialize(input: &[u8]) -> Huffman {
-        bincode::deserialize(input).unwrap()
-    }
-
     pub fn encrypt(input: &Vec<u8>) -> Huffman {
         let tree = HuffmanTree::build_tree(&input);
         let mut lookup = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
@@ -57,12 +85,13 @@ impl Huffman {
         let unused = self.unused_bits;
         let mut result = Vec::new();
         let mut input = Vec::new();
+        let map = tree.build_reverse_map();
         for i in 0..data.len() * 8 - unused as usize {
             let indx = i / 8;
             let bit = (i % 8) as u8;
             input.push(data[indx] & (1 << bit) != 0);
-            if let Some(char) = tree.decrypt_char(&input) {
-                result.push(char);
+            if let Some(c) = map[std::iter::once(&true).chain(input.iter()).fold(0usize, |acc, &f| (acc << 1) | if f {1} else {0})] {
+                result.push(c);
                 input.clear();
             }
         }
@@ -147,17 +176,18 @@ impl HuffmanTree {
         Self::from_counts(counts)
     }
 
-    fn decrypt_char(&self, code: &[bool]) -> Option<u8> {
-        match code.split_first() {
-            Some((first, rest)) => {
-                if *first {
-                    self.children.get(1).and_then(|child| child.decrypt_char(rest))
-                } else {
-                    self.children.get(0).and_then(|child| child.decrypt_char(rest))
-                }
-            }
-            None => self.character,
+    fn build_reverse_map(&self) -> Vec<Option<u8>> {
+        let mut map = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
+        self.build_map(Vec::new(), &mut map);
+
+        let max_len = map.iter().map(|v| v.len()).max().unwrap();
+        let mut result = vec![None; 2usize.pow(max_len as u32 + 1)];
+        for (c, path) in map.into_iter().enumerate() {
+            let indx = std::iter::once(true).chain(path.into_iter()).fold(0usize, |acc, b| (acc << 1) | if b {1} else {0});
+            result[indx] = Some(c as u8);
         }
+
+        result
     }
 
     fn build_map(&self, current_path: Vec<bool>, map: &mut Vec<Vec<bool>>) {

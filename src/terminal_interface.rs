@@ -11,4 +11,9 @@ pub struct Args {
     /// Decrypt the file at the given path 
     #[arg(short, long)]
     pub decrypt: Option<String>,
+
+    /// Benchmark the folder at the given path
+    #[arg(short, long)]
+    pub benchmark: Option<String>,
+
 }

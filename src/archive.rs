@@ -1,7 +1,7 @@
 use std::fs;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Archive {
     Directory{
         name: String,

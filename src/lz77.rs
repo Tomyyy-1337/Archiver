@@ -1,4 +1,4 @@
-use rayon::iter::{IntoParallelIterator, IntoParallelRefMutIterator, ParallelIterator};
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use crate::bitbuffer::{self, BitBuffer};
 use suffix_array::SuffixArray;
@@ -32,9 +32,10 @@ impl LZ77 {
     pub fn fast_encode(input: &[u8], bits: u8) -> BitBuffer {
         let n = input.len();
         
-        let suffix_array = SuffixArray::new(input);
+        let suffix_array = SuffixArray::new(input);        
         let (_,suffix_array) = suffix_array.into_parts();
         let suffix_array = suffix_array.into_iter().map(|i| i as usize).collect::<Vec<_>>();
+
 
         let mut inverse_suffix_array = vec![0; n+1];
         for (i, suffix_indx) in suffix_array.iter().enumerate() {
@@ -104,19 +105,16 @@ impl LZ77 {
         (bits - 2).min(8).max(2)
     }
 
-    fn decode_chunk(factors: &Vec<(usize, usize, u8)>) -> Vec<u8> {
-        let mut decoded = Vec::new();
-        for (p,l,c) in factors {
-            if *l == 0 {
-                decoded.push(*c);
-            } else {
-                for i in 0..*l {
-                    let c = decoded[p + i];
-                    decoded.push(c);
-                }
+    fn decode_chunk(factors: Vec<(usize, usize, u8)>) -> Vec<u8> {
+        factors.into_iter().fold(Vec::new(), |mut acc, (p,l,c)| {
+            match l {
+                0 => acc.push(c),
+                _ => for i in 0..l {
+                    acc.push(acc[p + i]);
+                },
             }
-        }
-        decoded
+            acc
+        })
     }
 
     fn lz_factor(i:usize, psv: usize, nsv: usize, x: &[u8]) -> (usize, usize, u8, usize) {
@@ -155,22 +153,26 @@ impl LZ77 {
         }
     }
 
-    pub fn decode(&mut self, bits: u8) -> Vec<u8> {
+    pub fn decode(self, bits: u8) -> Vec<u8> {
         let lenght_size = Self::lenght_size(bits);
-        self.bitbuffers.par_iter_mut().flat_map(|chunk| {
+        self.bitbuffers.into_par_iter().progress().flat_map(|mut chunk| {
             let mut current_char_index = 0usize;
             let mut factors = Vec::new();
+            let mut current_bits;
             while let Some(l) = chunk.read_bits(lenght_size) {
-                if l == 0 {
-                    factors.push((0, 0, chunk.read_byte().unwrap()));
-                    current_char_index += 1;
-                } else {
-                    let current_bits = current_char_index.ilog2() as u8 + 1;
-                    factors.push((chunk.read_bits(current_bits).unwrap() as usize, l as usize, 0));         
-                    current_char_index += l as usize;     
+                match l {
+                    0 => {
+                        factors.push((0, 0, chunk.read_byte().unwrap()));
+                        current_char_index += 1;
+                    },
+                    _ => {
+                        current_bits =  32 - (current_char_index as u32).leading_zeros() as u8;
+                        factors.push((chunk.read_bits(current_bits).unwrap() as usize, l as usize, 0));         
+                        current_char_index += l as usize;     
+                    },
                 }
             }
-            LZ77::decode_chunk(&factors)
+            LZ77::decode_chunk(factors)
         }).collect::<Vec<_>>()
     }
 
