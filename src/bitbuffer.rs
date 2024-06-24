@@ -24,6 +24,7 @@ impl BitBuffer {
         }
     }
 
+    #[inline]
     pub fn write_bit(&mut self, bit: bool) {
         if self.num_bits % 8 == 0 {
             self.data.push(0);
@@ -34,18 +35,21 @@ impl BitBuffer {
         self.num_bits += 1;
     }
 
+    #[inline]
     pub fn write_bits(&mut self, bits: u32, num_bits: u8) {
         for i in 0..num_bits {
             self.write_bit(bits & (1 << i) != 0);
         }
     }
 
+    #[inline]
     pub fn write_byte(&mut self, byte: u8) {
         for i in 0..8 {
             self.write_bit(byte & (1 << i) != 0);
         }
     }
 
+    #[inline]
     pub fn read_bit(&mut self) -> Option<bool> {
         if self.read_pos >= self.num_bits {
             return None;
@@ -55,6 +59,7 @@ impl BitBuffer {
         Some(bit)
     }
 
+    #[inline]
     pub fn read_byte(&mut self) -> Option<u8> {
         if self.read_pos + 8 > self.data.len() * 8 {
             return None;
@@ -68,6 +73,7 @@ impl BitBuffer {
         Some(byte)
     }
 
+    #[inline]
     pub fn read_bits(&mut self, num_bits: u8) -> Option<u32> {
         if self.read_pos + num_bits as usize > self.num_bits {
             return None;

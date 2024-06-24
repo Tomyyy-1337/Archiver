@@ -1,4 +1,5 @@
 use std::fs;
+use rayon::iter::{IntoParallelRefIterator, ParallelBridge, ParallelIterator};
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -34,6 +35,7 @@ impl Archive {
 
         let children = fs::read_dir(path).unwrap()
             .map(|entry| entry.unwrap().path().file_name().unwrap().to_str().unwrap().to_string())
+            .par_bridge()
             .map(|child_path| Self::read_from_disk(&(path.to_string() + "/" + &child_path)))
             .collect::<Vec<_>>();
 
@@ -50,7 +52,7 @@ impl Archive {
             },
             Archive::Directory { name, children } if fs::metadata(format!("{}/{}", path, name)).is_err() => {
                 fs::create_dir(path.to_string() + "/" + name).unwrap_or(());
-                children.iter().for_each(|child| child.write_to_disk(&(path.to_string() + "/" + name)));
+                children.par_iter().for_each(|child| child.write_to_disk(&(path.to_string() + "/" + name)));
             },
             Archive::File { name, .. } | Archive::Directory { name, .. } => println!("{} existiert bereits", name),
         }
