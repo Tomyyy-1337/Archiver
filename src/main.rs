@@ -6,11 +6,11 @@ mod lz_77;
 mod huffman;
 mod bitbuffer;
 mod terminal_interface;
+mod suffix_array;
 
 use huffman::ParrallelHuffman;
 use archive::Archive;
 use lz_77::LZ77;
-
 
 fn main() {
     let args = terminal_interface::Args::parse();
@@ -33,7 +33,7 @@ fn main() {
         let root = Archive::deserialize(&lz_encoded.decode());
         root.write_to_disk(".");
     } else if let Some(benchmark) = args.benchmark{
-        println!("Starting benchmark with LZ77 chunk size {} and huffman chunk size {}", 2u32.pow(lz_buffer_size as u32) - 1, 2u32.pow(huffman_bits as u32) - 1);
+        println!("Starting benchmark with LZ77 chunk size {}MB and huffman chunk size {}KB", 2u32.pow(lz_buffer_size as u32 - 20) - 1, 2u32.pow(huffman_bits as u32 - 10));
         let root = Archive::read_from_disk(&benchmark);
         let serialized = root.serialize();
         if serialized.len() >= 2usize.pow(20) {
