@@ -6,7 +6,6 @@ mod lz_77;
 mod huffman;
 mod bitbuffer;
 mod terminal_interface;
-mod suffix_array;
 
 use huffman::ParrallelHuffman;
 use archive::Archive;
