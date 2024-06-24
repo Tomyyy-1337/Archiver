@@ -62,7 +62,7 @@ impl LZ77 {
             let (p,l,c,indx) = LZ77::lz_factor(k, psv, nsv, input);
             k = indx;
             factors.push((p,l,c));
-        }
+        } 
 
 
         let lenght_size = Self::lenght_size(bits);

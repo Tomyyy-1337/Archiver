@@ -10,10 +10,11 @@ mod bitbuffer;
 mod huffman;
 mod terminal_interface;
 
+
 fn main() {
     let args = terminal_interface::Args::parse();
 
-    let lz_buffer_size = 25;
+    let lz_buffer_size = 26;
 
     if let Some(encrypt) = args.encrypt {
         let root = Archive::read_from_disk(&encrypt);
