@@ -20,40 +20,46 @@ impl LZ77 {
 
     #[inline]
     fn lpc(input: &[u8], i: u32, j: u32) -> u32 {
-        if i == 0 || j == 0 {
-            return 0;
-        }
-        let mut k = 0;
-        while j + k < input.len() as u32 && i + k < input.len() as u32 && input[i as usize + k as usize] == input[j as usize + k as usize] {
-            k += 1;
-        }
-        k
+        input[i as usize..]
+            .iter()
+            .zip(input[j as usize..].iter())
+            .position(|(a,b)| a != b)
+            .unwrap_or(0) as u32
     }
 
     pub fn fast_encode(input: &[u8]) -> BitBuffer {
         let n = input.len();
 
-        let suffix_array = SuffixArray::new(input);       
-        let (_,suffix_array) = suffix_array.into_parts();
+        let (_,suffix_array) = SuffixArray::new(input).into_parts();
 
-        let mut inverse_suffix_array = vec![0; n+1];
-        for (i, suffix_indx) in suffix_array.iter().enumerate() {
-            inverse_suffix_array[*suffix_indx as usize] = i;
-        }
+        let mut nsv = Vec::new();
+        let mut psv = Vec::new();
+        let mut inverse_suffix_array = Vec::new();
 
-        let mut nsv = vec![0u32; n+1];
-        let mut psv = vec![u32::MAX; n+1];
-        for i in 1..n as u32 {
-            let mut j = i - 1;
-            while psv[j as usize] != u32::MAX && suffix_array[i as usize] < suffix_array[j as usize] {
-                nsv[j as usize] = i;
-                j = psv[j as usize];
-            }
-            psv[i as usize] = j;
-        }
-        psv = psv.into_iter().map(|i| if i == u32::MAX {0} else {i}).collect::<Vec<_>>();
-        nsv = nsv.into_iter().map(|i| i).collect::<Vec<_>>();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                inverse_suffix_array = vec![0; n+1];
+                for (i, suffix_indx) in suffix_array.iter().enumerate() {
+                    inverse_suffix_array[*suffix_indx as usize] = i;
+                }
+            });
 
+            scope.spawn(|| {
+                nsv = vec![0u32; n+1];
+                psv = vec![u32::MAX; n+1];
+                
+                for i in 1..n as u32 {
+                    let mut j = i - 1;
+                    while psv[j as usize] != u32::MAX && suffix_array[i as usize] < suffix_array[j as usize] {
+                        nsv[j as usize] = i;
+                        j = psv[j as usize];
+                    }
+                    psv[i as usize] = j;
+                }
+                psv = psv.iter().map(|&i| if i == u32::MAX {0} else {i}).collect::<Vec<_>>();
+            });
+        }); 
+        
         let mut factors = Vec::new();
         let mut k = 0u32;
         while k < n as u32{
@@ -65,7 +71,7 @@ impl LZ77 {
         } 
 
         let mut current_char_index = 0usize;
-        let mut lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
+        let mut lenght_size = 1;
         let mut max_lenght = 2u32.pow(lenght_size as u32) - 1;
 
         factors.into_iter().fold(BitBuffer::new(), | mut acc ,(mut p,mut l,c)| {
@@ -75,33 +81,25 @@ impl LZ77 {
                 current_char_index += 1;
                 lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
                 max_lenght = 2u32.pow(lenght_size as u32) - 1;
-            } else if l < max_lenght {
+                return acc;
+            } 
+            while l > max_lenght{
                 let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
-                acc.write_bits(l as u32, lenght_size);
+                acc.write_bits(u32::MAX, lenght_size);
                 acc.write_bits(p as u32, current_bits);
-                current_char_index += l as usize;
+                p += max_lenght;
+                l -= max_lenght;
+                current_char_index += max_lenght as usize;
                 lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
                 max_lenght = 2u32.pow(lenght_size as u32) - 1;
-            } else {
-                while l >= max_lenght{
-                    let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
-                    acc.write_bits(u32::MAX, lenght_size);
-                    acc.write_bits(p as u32, current_bits);
-                    p += max_lenght;
-                    l -= max_lenght;
-                    current_char_index += max_lenght as usize;
-                    lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
-                    max_lenght = 2u32.pow(lenght_size as u32) - 1;
-                }
-                if l != 0 {
-                    let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
-                    acc.write_bits(l as u32, lenght_size);
-                    acc.write_bits(p as u32, current_bits);
-                    current_char_index += l as usize;
-                    lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
-                    max_lenght = 2u32.pow(lenght_size as u32) - 1;
-                }
             }
+            let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
+            acc.write_bits(l as u32, lenght_size);
+            acc.write_bits(p as u32, current_bits);
+            current_char_index += l as usize;
+            lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
+            max_lenght = 2u32.pow(lenght_size as u32) - 1;
+    
             acc
         })
     }
@@ -164,7 +162,7 @@ impl LZ77 {
             let mut current_char_index = 0usize;
             let mut factors = Vec::new();
             let mut current_bits;
-            let mut lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
+            let mut lenght_size = 1;
             while let Some(l) = chunk.read_bits(lenght_size) {
                 match l {
                     0 => {

@@ -54,9 +54,6 @@ impl Huffman {
         let mut lookup = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
         tree.build_map(vec![], &mut lookup);
 
-        let mut lookup = (0..256).map(|_| Vec::new()).collect::<Vec<_>>();
-        tree.build_map(vec![], &mut lookup);
-
         let (count, data) = input
             .into_iter()
             .flat_map(|&c| &lookup[c as usize])
@@ -84,15 +81,15 @@ impl Huffman {
         let data = &self.data;
         let unused = self.unused_bits;
         let mut result = Vec::new();
-        let mut input = Vec::new();
+        let mut input = 1u32;
         let map = tree.build_reverse_map();
         for i in 0..data.len() * 8 - unused as usize {
             let indx = i / 8;
             let bit = (i % 8) as u8;
-            input.push(data[indx] & (1 << bit) != 0);
-            if let Some(c) = map[std::iter::once(&true).chain(input.iter()).fold(0usize, |acc, &f| (acc << 1) | if f {1} else {0})] {
+            input = (input << 1) | ((data[indx] >> bit) & 1 ) as u32;
+            if let Some(c) = map[input as usize] {
                 result.push(c);
-                input.clear();
+                input = 1;
             }
         }
         result
