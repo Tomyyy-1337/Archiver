@@ -69,14 +69,49 @@ impl LZ77 {
             k = indx;
             factors.push((p,l,c));
         } 
+        
+        let factors = factors.into_iter()
+            .scan(0, |count, (p,l,c)| {
+                *count += l.max(1);
+                if l == 1 && *count >= 128 {
+                    return Some(vec![(0,0,input[p as usize])]);
+                }
+                if l == 2 && *count >= 32768 {
+                    return Some(vec![(0,0,input[p as usize]), (0,0,input[p as usize + 1])]);
+                }
+                if l == 3 && *count >= 8388608 {
+                    return Some(vec![(0,0,input[p as usize]), (0,0,input[p as usize + 1]), (0,0,input[p as usize + 2])]);
+                }
+                Some(vec![(p,l,c)])
+            })
+            .flatten()
+            .collect::<Vec<_>>();
 
-        let mut current_char_index = 0usize;
-        let mut lenght_size = 1;
-        let mut max_lenght = 2u32.pow(lenght_size as u32) - 1;
+        
+    let mut current_char_index = 0usize;
+    let mut lenght_size = 1;
+    let mut max_lenght = 2u32.pow(lenght_size as u32) - 1;
+    let mut buffer = BitBuffer::new();
 
-        factors.into_iter().fold(BitBuffer::new(), | mut acc ,(mut p,mut l,c)| {
-            if l == 0 {
-                acc.write_bits(0, lenght_size);
+    let char_count = factors.iter().filter(|(_,l,_)| *l == 0).count();
+    let char_prob = char_count as f32 / factors.len() as f32;
+    
+    // set flag mode 
+    let flag_mode = if char_prob > 0.25 {
+        buffer.write_bit(true);
+        true
+    } else {
+        buffer.write_bit(false);
+        false
+    };        
+    
+    factors.into_iter().fold(buffer, | mut acc ,(mut p,mut l,c)| {
+        if l == 0 {
+                if flag_mode {
+                    acc.write_bit(false);
+                } else {
+                    acc.write_bits(0, lenght_size);
+                }
                 acc.write_byte(c);
                 current_char_index += 1;
                 lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
@@ -85,6 +120,9 @@ impl LZ77 {
             } 
             while l > max_lenght{
                 let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
+                if flag_mode {
+                    acc.write_bit(true);
+                } 
                 acc.write_bits(u32::MAX, lenght_size);
                 acc.write_bits(p as u32, current_bits);
                 p += max_lenght;
@@ -94,6 +132,9 @@ impl LZ77 {
                 max_lenght = 2u32.pow(lenght_size as u32) - 1;
             }
             let current_bits = 32 - (current_char_index as u32).leading_zeros() as u8;
+            if flag_mode {
+                acc.write_bit(true);
+            }
             acc.write_bits(l as u32, lenght_size);
             acc.write_bits(p as u32, current_bits);
             current_char_index += l as usize;
@@ -158,24 +199,42 @@ impl LZ77 {
     }
 
     pub fn decode(self) -> Vec<u8> {
+
         self.bitbuffers.into_par_iter().progress().flat_map(|mut chunk| {
             let mut current_char_index = 0usize;
             let mut factors = Vec::new();
             let mut current_bits;
             let mut lenght_size = 1;
-            while let Some(l) = chunk.read_bits(lenght_size) {
-                match l {
-                    0 => {
+            let flag_mode = chunk.read_bit().unwrap();
+            if flag_mode {
+                while let Some(l) = chunk.read_bit() {
+                    match l {
+                        false => {
+                            factors.push((0, 0, chunk.read_byte().unwrap()));
+                            current_char_index += 1;
+                            lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
+                        },
+                        true => {
+                            let l = chunk.read_bits(lenght_size).unwrap();
+                            current_bits =  32 - (current_char_index as u32).leading_zeros() as u8;
+                            factors.push((chunk.read_bits(current_bits).unwrap(), l, 0));         
+                            current_char_index += l as usize;     
+                            lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
+                        },
+                    }
+                }
+            } else {
+                while let Some(l) = chunk.read_bits(lenght_size) {
+                    if l == 0 {
                         factors.push((0, 0, chunk.read_byte().unwrap()));
                         current_char_index += 1;
                         lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
-                    },
-                    _ => {
+                    } else {
                         current_bits =  32 - (current_char_index as u32).leading_zeros() as u8;
                         factors.push((chunk.read_bits(current_bits).unwrap(), l, 0));         
                         current_char_index += l as usize;     
                         lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
-                    },
+                    }
                 }
             }
             LZ77::decode_chunk(factors)
