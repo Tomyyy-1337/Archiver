@@ -105,7 +105,7 @@ fn benchmark(path: &str, lz_buffer_size: u8, huffman_bits: u8) {
     assert_eq!(root, Archive::deserialize(&decoded), "Decoded archive does not match original"); 
 
     println!("Benchmark finished successfully!");
-    println!("LZ77    Compression Time : {:?}", lz_time.duration_since(start));
+    println!("LZ77    Compression      : {:?}", lz_time.duration_since(start));
     println!("Huffman Compression      : {:?}", lz_huffman_time.duration_since(lz_time));
     println!("Huffman Decompression    : {:?}", huffman_time_decode.duration_since(start_decompress));
     println!("LZ77    Decompression    : {:?}", lz_time_decode.duration_since(huffman_time_decode));
