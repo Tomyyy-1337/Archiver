@@ -29,34 +29,50 @@ fn main() {
 fn compress(path: &str, lz_buffer_size: u8, huffman_bits: u8) {
     let root = Archive::read_from_disk(&path);
     let serialized = root.serialize();
+    if serialized.len() >= 2usize.pow(20) {
+        println!("Read archive of size {}MB", serialized.len() / 2usize.pow(20));
+    } else {
+        println!("Read archive of size {}KB", serialized.len() / 2usize.pow(10));
+    }
     let mut lz_encoded = LZ77::encode(&serialized, lz_buffer_size).serialize();
     let mut huffman = ParrallelHuffman::encrypt(&lz_encoded, huffman_bits).serialize();
     let full_path = fs::canonicalize(path).unwrap();
     let dir_name = full_path.file_name().unwrap().to_str().unwrap();
 
-    if lz_encoded.len() <= huffman.len() {
+    let compressed = if lz_encoded.len() <= huffman.len() {
         lz_encoded.insert(0, 0);
-        fs::write(format!("{}.tmy",dir_name), lz_encoded).unwrap();
+        lz_encoded
     } else {
         huffman.insert(0, 1);
-        fs::write(format!("{}.tmy",dir_name), huffman).unwrap();
+        huffman
+    };
+    if compressed.len() >= 2usize.pow(20) {
+        println!("Compressed archive to {}MB.", compressed.len() / 2usize.pow(20));
+    } else {
+        println!("Compressed archive to {}KB.", compressed.len() / 2usize.pow(10));
     }
+    fs::write(format!("{}.tmy",dir_name), compressed).unwrap();
 }
 
 fn decompress(path: &str) {
     let contents = fs::read(path).unwrap();
-    if contents[0] == 0 {
+    if contents.len() < 2usize.pow(20) {
+        println!("Read archive of size {}KB", contents.len() / 2usize.pow(10));
+    } else {
+        println!("Read archive of size {}MB", contents.len() / 2usize.pow(20));
+    }
+    let root = if contents[0] == 0 {
         let lz_encoded = &contents[1..];
         let lz_encoded = LZ77::deserialize(&lz_encoded);
-        let root = Archive::deserialize(&lz_encoded.decode());
-        root.write_to_disk(".");
+        Archive::deserialize(&lz_encoded.decode())
     } else {
         let huffman_serialized = &contents[1..];
         let huffman = ParrallelHuffman::deserialize(&huffman_serialized);
         let lz_encoded = LZ77::deserialize(&huffman.decrypt());
-        let root = Archive::deserialize(&lz_encoded.decode());
-        root.write_to_disk(".");
-    }
+        Archive::deserialize(&lz_encoded.decode())
+    };
+    root.write_to_disk(".");
+    println!("Decompressed archive successfully!");
 }
 
 fn benchmark(path: &str, lz_buffer_size: u8, huffman_bits: u8) {
