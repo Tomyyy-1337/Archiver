@@ -16,4 +16,11 @@ pub struct Args {
     #[arg(short, long)]
     pub benchmark: Option<String>,
 
+    /// The size of the LZ77 buffer (8-31) 
+    #[arg(short, long, default_value = "28")]
+    pub lz_buffer: u32,
+
+    /// The size of the Huffman buffer (8-31)
+    #[arg(long, default_value = "20")]
+    pub huffman_buffer: u32,
 }

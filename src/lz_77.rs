@@ -86,27 +86,25 @@ impl LZ77 {
             })
             .flatten()
             .collect::<Vec<_>>();
+            
+        let mut current_char_index = 0usize;
+        let mut lenght_size = 1;
+        let mut max_lenght = 2u32.pow(lenght_size as u32) - 1;
+        let mut buffer = BitBuffer::new();
 
+        let char_count = factors.iter().filter(|(_,l,_)| *l == 0).count();
+        let char_prob = char_count as f32 / factors.len() as f32;
         
-    let mut current_char_index = 0usize;
-    let mut lenght_size = 1;
-    let mut max_lenght = 2u32.pow(lenght_size as u32) - 1;
-    let mut buffer = BitBuffer::new();
-
-    let char_count = factors.iter().filter(|(_,l,_)| *l == 0).count();
-    let char_prob = char_count as f32 / factors.len() as f32;
-    
-    // set flag mode 
-    let flag_mode = if char_prob > 0.25 {
-        buffer.write_bit(true);
-        true
-    } else {
-        buffer.write_bit(false);
-        false
-    };        
-    
-    factors.into_iter().fold(buffer, | mut acc ,(mut p,mut l,c)| {
-        if l == 0 {
+        let flag_mode = if char_prob > 0.25 {
+            buffer.write_bit(true);
+            true
+        } else {
+            buffer.write_bit(false);
+            false
+        };        
+        
+        factors.into_iter().fold(buffer, | mut acc ,(mut p,mut l,c)| {
+            if l == 0 {
                 if flag_mode {
                     acc.write_bit(false);
                 } else {
@@ -140,7 +138,7 @@ impl LZ77 {
             current_char_index += l as usize;
             lenght_size = Self::lenght_size(31 - (current_char_index as u32).leading_zeros() as u8);
             max_lenght = 2u32.pow(lenght_size as u32) - 1;
-    
+
             acc
         })
     }
@@ -182,24 +180,27 @@ impl LZ77 {
         let chunk_size = 2usize.pow(bits as u32) - 1;
         let num_chunks = n / chunk_size + if n % chunk_size == 0 {0} else {1};
 
+        let progress = indicatif::ProgressBar::new(num_chunks as u64);
+        progress.set_position(0);
         let data = (0..num_chunks).into_par_iter() 
-            .progress()
             .map(|i| {
                 let start = i * chunk_size;
                 let end = usize::min((i + 1) * chunk_size, n);
                 let chunk = &input[start..end];
                 let factors = LZ77::fast_encode(chunk);
+                progress.inc(1);
                 factors
             })
             .collect::<Vec<_>>();
 
+        progress.finish_and_clear();
+        
         LZ77 {
             bitbuffers: data,
         }
     }
 
     pub fn decode(self) -> Vec<u8> {
-
         self.bitbuffers.into_par_iter().progress().flat_map(|mut chunk| {
             let mut current_char_index = 0usize;
             let mut factors = Vec::new();
@@ -207,8 +208,8 @@ impl LZ77 {
             let mut lenght_size = 1;
             let flag_mode = chunk.read_bit().unwrap();
             if flag_mode {
-                while let Some(l) = chunk.read_bit() {
-                    match l {
+                while let Some(char_flag) = chunk.read_bit() {
+                    match char_flag {
                         false => {
                             factors.push((0, 0, chunk.read_byte().unwrap()));
                             current_char_index += 1;

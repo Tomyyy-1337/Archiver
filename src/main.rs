@@ -14,62 +14,100 @@ use lz_77::LZ77;
 fn main() {
     let args = terminal_interface::Args::parse();
 
-    let lz_buffer_size = 28;
-    let huffman_bits = 20;
+    let lz_buffer_size = args.lz_buffer as u8;
+    let huffman_bits = args.huffman_buffer as u8;
 
-    if let Some(encrypt) = args.encrypt {
-        let root = Archive::read_from_disk(&encrypt);
-        let serialized = root.serialize();
-        let lz_encoded = LZ77::encode(&serialized, lz_buffer_size);
-        let huffman = ParrallelHuffman::encrypt(&lz_encoded.serialize(), huffman_bits);
-        let full_path = fs::canonicalize(encrypt).unwrap();
-        let dir_name = full_path.file_name().unwrap().to_str().unwrap();
-        fs::write(format!("{}.tmy",dir_name), huffman.serialize()).unwrap();
-    } else if let Some(decrypt) = args.decrypt {
-        let huffman_serialized = fs::read(decrypt).unwrap();
+    if let Some(path) = args.encrypt {
+        compress(&path, lz_buffer_size, huffman_bits);
+    } else if let Some(path) = args.decrypt {
+        decompress(&path);
+    } else if let Some(path) = args.benchmark{
+        benchmark(&path, lz_buffer_size, huffman_bits);
+    }
+}
+
+fn compress(path: &str, lz_buffer_size: u8, huffman_bits: u8) {
+    let root = Archive::read_from_disk(&path);
+    let serialized = root.serialize();
+    let mut lz_encoded = LZ77::encode(&serialized, lz_buffer_size).serialize();
+    let mut huffman = ParrallelHuffman::encrypt(&lz_encoded, huffman_bits).serialize();
+    let full_path = fs::canonicalize(path).unwrap();
+    let dir_name = full_path.file_name().unwrap().to_str().unwrap();
+
+    if lz_encoded.len() <= huffman.len() {
+        lz_encoded.insert(0, 0);
+        fs::write(format!("{}.tmy",dir_name), lz_encoded).unwrap();
+    } else {
+        huffman.insert(0, 1);
+        fs::write(format!("{}.tmy",dir_name), huffman).unwrap();
+    }
+}
+
+fn decompress(path: &str) {
+    let contents = fs::read(path).unwrap();
+    if contents[0] == 0 {
+        let lz_encoded = &contents[1..];
+        let lz_encoded = LZ77::deserialize(&lz_encoded);
+        let root = Archive::deserialize(&lz_encoded.decode());
+        root.write_to_disk(".");
+    } else {
+        let huffman_serialized = &contents[1..];
         let huffman = ParrallelHuffman::deserialize(&huffman_serialized);
         let lz_encoded = LZ77::deserialize(&huffman.decrypt());
         let root = Archive::deserialize(&lz_encoded.decode());
         root.write_to_disk(".");
-    } else if let Some(benchmark) = args.benchmark{
-        println!("Starting benchmark with LZ77 chunk size {:2}MB and huffman chunk size {}KB", 2f32.powi(lz_buffer_size as i32 - 20), 2u32.pow(huffman_bits as u32 - 10));
-        let root = Archive::read_from_disk(&benchmark);
-        let serialized = root.serialize();
-        if serialized.len() >= 2usize.pow(20) {
-            println!("Read archive of size {}MB", serialized.len() / 2usize.pow(20));
-        } else {
-            println!("Read archive of size {}KB", serialized.len() / 2usize.pow(10));
-        }
+    }
+}
 
-        println!("Testing Compression...");
-        let start = std::time::Instant::now();
-        let lz_encoded = LZ77::encode(&serialized, lz_buffer_size).serialize();
-        let lz_time = start.elapsed();
-
-        let huffman = ParrallelHuffman::encrypt(&lz_encoded, huffman_bits);
-        let huffman_time = start.elapsed() - lz_time;
-
-        let compressed = huffman.serialize();
-        if compressed.len() >= 2usize.pow(20) {
-            println!("Compression finished! Compressed archive to {}MB", compressed.len() / 2usize.pow(20));
-        } else {
-            println!("Compression finished! Compressed archive to {}KB", compressed.len() / 2usize.pow(10));
-        }
-
-        println!("Testing Decompression...");
-        let lz = ParrallelHuffman::decrypt(&huffman);
-        let huffman_time_decrypt = start.elapsed() - lz_time - huffman_time;
-
-        let lz_encoded = LZ77::deserialize(&lz);
-        let decoded = lz_encoded.decode();
-        let lz_time_decrypt = start.elapsed() - lz_time - huffman_time - huffman_time_decrypt;
-
-        println!("Decompression finished!");
-        
-        assert_eq!(root, Archive::deserialize(&decoded), "Decoded archive does not match original");
-        println!("Benchmark finished successfully!");
-        println!("LZ Encrypt:      {:?}\nHuffman Encrypt: {:?}\nHuffman Decrypt: {:?}\nLZ Decrypt:      {:?}",lz_time, huffman_time, huffman_time_decrypt, lz_time_decrypt);
-        println!("Compression ratio: {}", compressed.len() as f64 / serialized.len() as f64);
+fn benchmark(path: &str, lz_buffer_size: u8, huffman_bits: u8) {
+    println!("Starting benchmark with LZ77 chunk size {:2}MB and huffman chunk size {}KB", 2f32.powi(lz_buffer_size as i32 - 20), 2u32.pow(huffman_bits as u32 - 10));
+    let root = Archive::read_from_disk(&path);
+    let serialized = root.serialize();
+    if serialized.len() >= 2usize.pow(20) {
+        println!("Read archive of size {}MB", serialized.len() / 2usize.pow(20));
+    } else {
+        println!("Read archive of size {}KB", serialized.len() / 2usize.pow(10));
     }
 
+    println!("Testing Compression...");
+    
+    let start = std::time::Instant::now();
+
+    let lz_encoded = LZ77::encode(&serialized, lz_buffer_size).serialize();
+    let lz_time = std::time::Instant::now();
+
+    let huffman = ParrallelHuffman::encrypt(&lz_encoded, huffman_bits).serialize();
+    let lz_huffman_time = std::time::Instant::now();
+
+    let compressed = if lz_encoded.len() <= huffman.len() {
+        println!("Compression mode: LZ77 only.");
+        &lz_encoded
+    } else {
+        println!("Compression mode: LZ77 + Huffman.");
+        &huffman
+    };
+
+    if compressed.len() >= 2usize.pow(20) {
+        println!("Compressed archive to {}MB.", compressed.len() / 2usize.pow(20));
+    } else {
+        println!("Compressed archive to {}KB.", compressed.len() / 2usize.pow(10));
+    }
+
+    println!("Testing Decompression...");
+    let start_decompress = std::time::Instant::now();
+    
+    let lz = ParrallelHuffman::decrypt(&ParrallelHuffman::deserialize(&huffman));
+    let huffman_time_decode = std::time::Instant::now();
+    let decoded = LZ77::deserialize(&lz).decode();
+    let lz_time_decode = std::time::Instant::now();
+
+    assert_eq!(lz, lz_encoded, "Decoded LZ77 does not match original LZ77");
+    assert_eq!(root, Archive::deserialize(&decoded), "Decoded archive does not match original"); 
+
+    println!("Benchmark finished successfully!");
+    println!("LZ77    Compression Time : {:?}", lz_time.duration_since(start));
+    println!("Huffman Compression      : {:?}", lz_huffman_time.duration_since(lz_time));
+    println!("Huffman Decompression    : {:?}", huffman_time_decode.duration_since(start_decompress));
+    println!("LZ77    Decompression    : {:?}", lz_time_decode.duration_since(huffman_time_decode));
+    println!("Compression Ratio : {:.2}%", 100.0 * (compressed.len() as f32 / serialized.len() as f32));
 }
