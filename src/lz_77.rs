@@ -177,7 +177,7 @@ impl LZ77 {
 
     pub fn encode(input: &[u8], bits: u8) -> LZ77 {
         let n = input.len();
-        let chunk_size = 2usize.pow(bits as u32) - 1;
+        let chunk_size = 2usize.pow(bits as u32) - 2;
         let num_chunks = n / chunk_size + if n % chunk_size == 0 {0} else {1};
 
         let progress = indicatif::ProgressBar::new(num_chunks as u64);
